@@ -1,33 +1,3 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ANTIGRAVITY FIELD (TF VERSION)</title>
-
-<style>
-body { margin:0; overflow:hidden; background:black; }
-video, canvas {
-  position:absolute;
-  width:100%;
-  height:100%;
-  object-fit:cover;
-}
-video {
-  transform: scaleX(-1);
-  opacity:0.25;
-}
-</style>
-</head>
-
-<body>
-
-<video id="video" autoplay playsinline muted></video>
-<canvas id="canvas"></canvas>
-
-<!-- ✅ TensorFlow + Handpose -->
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
-
 <script>
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -36,26 +6,34 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// ===== CAMERA =====
-navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+// CAMERA
+async function setupCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
-});
 
-// ===== PARTICLES =====
+  return new Promise(resolve => {
+    video.onloadedmetadata = () => {
+      video.play();
+      resolve(video);
+    };
+  });
+}
+
+// PARTICLES
 let particles = [];
 
 class Particle {
   constructor(x,y){
     this.x=x;
     this.y=y;
-    this.vx=(Math.random()-0.5)*3;
-    this.vy=(Math.random()-0.5)*3;
+    this.vx=(Math.random()-0.5)*2;
+    this.vy=(Math.random()-0.5)*2;
     this.life=1;
   }
   update(){
     this.x+=this.vx;
     this.y+=this.vy;
-    this.life-=0.02;
+    this.life-=0.015;
   }
   draw(){
     ctx.globalAlpha=this.life;
@@ -66,8 +44,13 @@ class Particle {
   }
 }
 
-// ===== MAIN =====
-async function run(){
+// DISTANCE
+function dist(a,b){
+  return Math.hypot(a.x-b.x, a.y-b.y);
+}
+
+async function run() {
+  await setupCamera();
   const model = await handpose.load();
 
   async function detect(){
@@ -79,48 +62,74 @@ async function run(){
     ctx.translate(canvas.width,0);
     ctx.scale(-1,1);
 
-    let points = [];
-
     predictions.forEach(hand=>{
-      hand.landmarks.forEach(p=>{
-        const x = p[0];
-        const y = p[1];
+      const lm = hand.landmarks;
 
-        points.push({x,y});
+      // 👉 PALM CENTER (REAL FEEL)
+      const palm = {
+        x: (lm[0][0] + lm[5][0] + lm[17][0]) / 3,
+        y: (lm[0][1] + lm[5][1] + lm[17][1]) / 3
+      };
 
-        // glow
-        ctx.fillStyle="#00ffcc";
-        ctx.shadowBlur=15;
-        ctx.shadowColor="#00ffcc";
-        ctx.beginPath();
-        ctx.arc(x,y,5,0,Math.PI*2);
-        ctx.fill();
+      // 👉 PINCH DETECTION
+      const thumb = {x: lm[4][0], y: lm[4][1]};
+      const index = {x: lm[8][0], y: lm[8][1]};
+      const pinchDist = dist(thumb, index);
 
-        // particles
-        if(Math.random()<0.3){
-          particles.push(new Particle(x,y));
-        }
-      });
-    });
+      const pinch = pinchDist < 40;
 
-    // connect points
-    for(let i=0;i<points.length;i++){
-      for(let j=i+1;j<points.length;j++){
-        const dx=points[i].x-points[j].x;
-        const dy=points[i].y-points[j].y;
-        const d=Math.sqrt(dx*dx+dy*dy);
+      // 👉 ORB SIZE BASED ON PINCH
+      let radius = pinch ? 20 : 60;
 
-        if(d<150){
-          ctx.strokeStyle=`rgba(0,255,200,${1-d/150})`;
-          ctx.beginPath();
-          ctx.moveTo(points[i].x,points[i].y);
-          ctx.lineTo(points[j].x,points[j].y);
-          ctx.stroke();
+      // 👉 GLOW ORB
+      const gradient = ctx.createRadialGradient(
+        palm.x, palm.y, 0,
+        palm.x, palm.y, radius
+      );
+      gradient.addColorStop(0, "rgba(0,255,200,0.9)");
+      gradient.addColorStop(1, "rgba(0,255,200,0)");
+
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(palm.x, palm.y, radius, 0, Math.PI*2);
+      ctx.fill();
+
+      // 👉 PARTICLE EMISSION
+      for(let i=0;i<3;i++){
+        particles.push(new Particle(palm.x, palm.y));
+      }
+
+      // 👉 ENERGY LINES BETWEEN FINGERS
+      const tips = [4,8,12,16,20];
+      for(let i=0;i<tips.length;i++){
+        for(let j=i+1;j<tips.length;j++){
+          const p1 = lm[tips[i]];
+          const p2 = lm[tips[j]];
+
+          const d = Math.hypot(p1[0]-p2[0], p1[1]-p2[1]);
+
+          if(d<120){
+            ctx.strokeStyle=`rgba(0,255,200,${1-d/120})`;
+            ctx.beginPath();
+            ctx.moveTo(p1[0], p1[1]);
+            ctx.lineTo(p2[0], p2[1]);
+            ctx.stroke();
+          }
         }
       }
-    }
 
-    // particles
+      // 👉 PINCH VISUAL
+      if(pinch){
+        ctx.strokeStyle="#00ffcc";
+        ctx.lineWidth=2;
+        ctx.beginPath();
+        ctx.arc(palm.x, palm.y, radius+10, 0, Math.PI*2);
+        ctx.stroke();
+      }
+
+    });
+
+    // PARTICLES
     particles = particles.filter(p=>p.life>0);
     particles.forEach(p=>{
       p.update();
@@ -128,7 +137,6 @@ async function run(){
     });
 
     ctx.restore();
-
     requestAnimationFrame(detect);
   }
 
@@ -137,6 +145,3 @@ async function run(){
 
 run();
 </script>
-
-</body>
-</html>
