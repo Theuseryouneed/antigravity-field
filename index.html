@@ -1,0 +1,112 @@
+<script>
+const video   = document.getElementById('video');
+const canvas  = document.getElementById('canvas');
+const ctx     = canvas.getContext('2d');
+const loading = document.getElementById('loading');
+const sField  = document.getElementById('s-field');
+const sHands  = document.getElementById('s-hands');
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let currentResults = null;
+let particles = [];
+let t = 0;
+
+// ✅ Explicit camera permission request
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720 },
+      audio: false
+    });
+
+    video.srcObject = stream;
+
+    return new Promise(resolve => {
+      video.onloadedmetadata = () => {
+        video.play();
+        resolve();
+      };
+    });
+
+  } catch (err) {
+    throw new Error("Camera permission denied or unavailable: " + err.message);
+  }
+}
+
+// ===== MediaPipe Setup =====
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`
+});
+
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence: 0.5
+});
+
+hands.onResults(r => {
+  currentResults = r;
+});
+
+// ===== Render Loop =====
+function render() {
+  t += 0.016;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.save();
+  ctx.translate(canvas.width,0);
+  ctx.scale(-1,1);
+
+  const lms = currentResults?.multiHandLandmarks ?? [];
+  sHands.textContent = lms.length;
+
+  if (lms.length > 0) {
+    sField.textContent='ACTIVE';
+    sField.style.color='#00ffcc';
+  } else {
+    sField.textContent='STANDBY';
+    sField.style.color='#003322';
+  }
+
+  ctx.restore();
+  requestAnimationFrame(render);
+}
+
+// ===== Start Everything =====
+async function startApp() {
+  try {
+    await initCamera();
+
+    // Camera loop for MediaPipe
+    async function detect() {
+      await hands.send({ image: video });
+      requestAnimationFrame(detect);
+    }
+
+    detect();
+
+    loading.style.display = 'none';
+    requestAnimationFrame(render);
+
+  } catch (err) {
+    loading.innerHTML = `
+      <div style="color:#ff4455;font-size:10px;letter-spacing:3px;text-align:center;line-height:2.4;padding:30px">
+        CAMERA ERROR<br>
+        <span style="opacity:0.5;font-size:8px">${err.message}</span><br>
+        <span style="opacity:0.35;font-size:8px">
+        Use HTTPS or localhost + allow camera access
+        </span>
+      </div>
+    `;
+  }
+}
+
+startApp();
+</script>
