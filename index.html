@@ -1,92 +1,44 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Antigravity Field - Production</title>
+<title>Antigravity Field - Stable</title>
 
 <style>
-body {
-  margin:0;
-  overflow:hidden;
-  background:#000;
-}
+body { margin:0; overflow:hidden; background:black; }
 
-#video {
+video {
   position:absolute;
   width:100%;
   height:100%;
   object-fit:cover;
-  transform: scaleX(-1);
-  filter: brightness(1.05) contrast(1.05) saturate(1.1);
+  transform:scaleX(-1);
 }
 
-#canvas {
+canvas {
   position:absolute;
   width:100%;
   height:100%;
-  pointer-events:none;
 }
 </style>
 </head>
 
 <body>
 
-<video id="video" autoplay playsinline muted></video>
+<video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
+<!-- ✅ MEDIAPIPE (STABLE) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-document.addEventListener("DOMContentLoaded", async () => {
-
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-// RESIZE SAFE
-function resize(){
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener("resize", resize);
-
-// CAMERA
-async function setupCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "user", width: 1280, height: 720 }
-  });
-  video.srcObject = stream;
-  await video.play();
-}
-
-// MAP
-function mapX(x){
-  return canvas.width - (x / video.videoWidth) * canvas.width;
-}
-function mapY(y){
-  return (y / video.videoHeight) * canvas.height;
-}
-
-// DIST
-function dist(a,b){
-  return Math.hypot(a.x-b.x, a.y-b.y);
-}
-
-// PER HAND SMOOTHING
-let smoothHands = {};
-
-function smooth(id, point){
-  if(!smoothHands[id]){
-    smoothHands[id] = point;
-  } else {
-    smoothHands[id].x = smoothHands[id].x * 0.7 + point.x * 0.3;
-    smoothHands[id].y = smoothHands[id].y * 0.7 + point.y * 0.3;
-  }
-  return smoothHands[id];
-}
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
 // PARTICLES
 let particles = [];
@@ -112,126 +64,93 @@ class Particle {
   }
 }
 
-// PALM
-function getPalm(lm){
-  return {
-    x: mapX((lm[0][0] + lm[5][0] + lm[17][0]) / 3),
-    y: mapY((lm[0][1] + lm[5][1] + lm[17][1]) / 3)
-  };
-}
+// HANDS
+const hands = new Hands({
+  locateFile: file =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
 
-// MAIN
-await setupCamera();
-const model = await handpose.load();
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence: 0.6
+});
 
-async function render(){
+let palms = [];
 
-  const predictions = await model.estimateHands(video, true);
+hands.onResults(results => {
 
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  let palms = [];
+  palms = [];
 
-  predictions.forEach((hand, index)=>{
+  if(results.multiHandLandmarks){
 
-    const lm = hand.landmarks;
+    results.multiHandLandmarks.forEach(lm => {
 
-    const rawPalm = getPalm(lm);
-    const palm = smooth(index, rawPalm);
+      const palm = {
+        x: (lm[0].x + lm[5].x + lm[17].x)/3 * canvas.width,
+        y: (lm[0].y + lm[5].y + lm[17].y)/3 * canvas.height
+      };
 
-    palms.push(palm);
+      palms.push(palm);
 
-    const thumb = {
-      x: mapX(lm[4][0]),
-      y: mapY(lm[4][1])
-    };
+      // ORB
+      const radius = 60;
 
-    const indexFinger = {
-      x: mapX(lm[8][0]),
-      y: mapY(lm[8][1])
-    };
+      const grad = ctx.createRadialGradient(
+        palm.x,palm.y,0,
+        palm.x,palm.y,radius
+      );
 
-    const pinch = dist(thumb,indexFinger) < 40;
+      grad.addColorStop(0,"rgba(0,255,200,0.9)");
+      grad.addColorStop(1,"rgba(0,255,200,0)");
 
-    let radius = pinch ? 25 : 70;
-
-    // ORB
-    const grad = ctx.createRadialGradient(
-      palm.x,palm.y,0,
-      palm.x,palm.y,radius
-    );
-    grad.addColorStop(0,"rgba(0,255,200,0.9)");
-    grad.addColorStop(1,"rgba(0,255,200,0)");
-
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(palm.x,palm.y,radius,0,Math.PI*2);
-    ctx.fill();
-
-    // PARTICLES
-    particles.push(new Particle(palm.x,palm.y));
-
-    // PINCH RING
-    if(pinch){
-      ctx.strokeStyle="#00ffcc";
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(palm.x,palm.y,radius+10,0,Math.PI*2);
-      ctx.stroke();
-    }
-  });
+      ctx.arc(palm.x,palm.y,radius,0,Math.PI*2);
+      ctx.fill();
 
-  // 🌍 TWO HAND GLOBE
-  if(palms.length === 2){
-
-    const p1 = palms[0];
-    const p2 = palms[1];
-
-    const cx = (p1.x + p2.x)/2;
-    const cy = (p1.y + p2.y)/2;
-
-    const d = dist(p1,p2);
-    const radius = d/2;
-
-    const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,radius);
-    grad.addColorStop(0,"rgba(0,255,200,0.4)");
-    grad.addColorStop(1,"rgba(0,255,200,0)");
-
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(cx,cy,radius,0,Math.PI*2);
-    ctx.fill();
-
-    // CONNECTION LINE
-    ctx.strokeStyle="rgba(0,255,200,0.5)";
-    ctx.beginPath();
-    ctx.moveTo(p1.x,p1.y);
-    ctx.lineTo(p2.x,p2.y);
-    ctx.stroke();
-
-    // GLOBE PARTICLES
-    for(let i=0;i<10;i++){
-      const angle = Math.random()*Math.PI*2;
-      const r = Math.random()*radius;
-      particles.push(new Particle(
-        cx + Math.cos(angle)*r,
-        cy + Math.sin(angle)*r
-      ));
-    }
+      particles.push(new Particle(palm.x,palm.y));
+    });
   }
 
-  // PARTICLES UPDATE
+  // TWO HAND GLOBE
+  if(palms.length === 2){
+
+    const cx = (palms[0].x + palms[1].x)/2;
+    const cy = (palms[0].y + palms[1].y)/2;
+
+    const dx = palms[0].x - palms[1].x;
+    const dy = palms[0].y - palms[1].y;
+
+    const radius = Math.sqrt(dx*dx + dy*dy)/2;
+
+    ctx.strokeStyle="rgba(0,255,200,0.6)";
+    ctx.beginPath();
+    ctx.arc(cx,cy,radius,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  // PARTICLES
   particles = particles.filter(p=>p.life>0);
   particles.forEach(p=>{
     p.update();
     p.draw();
   });
-
-  requestAnimationFrame(render);
-}
-
-render();
-
 });
+
+// CAMERA
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  width: 1280,
+  height: 720
+});
+
+camera.start();
 </script>
 
 </body>
