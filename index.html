@@ -3,12 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ANTIGRAVITY FIELD V2</title>
+<title>ANTIGRAVITY FIELD V3</title>
 
 <style>
-body { margin:0; background:black; overflow:hidden; }
-canvas { position:absolute; width:100%; height:100%; }
-video { position:absolute; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); opacity:0.25; }
+body {
+  margin:0;
+  overflow:hidden;
+  background:black;
+  font-family: monospace;
+}
+video, canvas {
+  position:absolute;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+video {
+  transform: scaleX(-1);
+  opacity:0.25;
+}
 </style>
 </head>
 
@@ -17,33 +30,66 @@ video { position:absolute; width:100%; height:100%; object-fit:cover; transform:
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js"></script>
 
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
 
-let handsData = [];
+// ===== PARTICLES =====
+let particles = [];
 
+class Particle {
+  constructor(x,y){
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random()-0.5)*3;
+    this.vy = (Math.random()-0.5)*3;
+    this.life = 1;
+  }
+  update(){
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= 0.02;
+  }
+  draw(){
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = "#00ffcc";
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,2,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+// ===== HAND SETUP =====
 const hands = new Hands({
-  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
+  }
 });
 
 hands.setOptions({
   maxNumHands: 2,
   minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.6
+  minTrackingConfidence: 0.7
 });
+
+let handData = [];
 
 hands.onResults(results => {
-  handsData = results.multiHandLandmarks || [];
+  handData = results.multiHandLandmarks || [];
 });
 
+// ===== CAMERA =====
 const camera = new Camera(video, {
   onFrame: async () => {
     await hands.send({ image: video });
@@ -51,34 +97,9 @@ const camera = new Camera(video, {
   width: 1280,
   height: 720
 });
-
 camera.start();
 
-// ===== PARTICLES =====
-let particles = [];
-
-class Particle {
-  constructor(x,y){
-    this.x=x; this.y=y;
-    this.vx=(Math.random()-0.5)*4;
-    this.vy=(Math.random()-0.5)*4;
-    this.life=1;
-  }
-  update(){
-    this.x+=this.vx;
-    this.y+=this.vy;
-    this.life-=0.02;
-  }
-  draw(){
-    ctx.globalAlpha=this.life;
-    ctx.fillStyle="#00ffcc";
-    ctx.beginPath();
-    ctx.arc(this.x,this.y,2,0,Math.PI*2);
-    ctx.fill();
-  }
-}
-
-// ===== DRAW LOOP =====
+// ===== DRAW =====
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
@@ -86,39 +107,47 @@ function draw(){
   ctx.translate(canvas.width,0);
   ctx.scale(-1,1);
 
-  handsData.forEach(hand=>{
-    hand.forEach(point=>{
+  let allPoints = [];
+
+  handData.forEach(hand => {
+    hand.forEach(point => {
       const x = point.x * canvas.width;
       const y = point.y * canvas.height;
 
-      // glow dot
-      ctx.fillStyle="#00ffcc";
+      allPoints.push({x,y});
+
+      // glowing point
+      ctx.fillStyle = "#00ffcc";
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = "#00ffcc";
       ctx.beginPath();
-      ctx.arc(x,y,5,0,Math.PI*2);
+      ctx.arc(x,y,4,0,Math.PI*2);
       ctx.fill();
 
       // particles
-      if(Math.random()<0.3){
+      if(Math.random() < 0.3){
         particles.push(new Particle(x,y));
       }
     });
   });
 
-  // connect fingers
-  if(handsData.length===2){
-    const h1 = handsData[0];
-    const h2 = handsData[1];
+  // ===== ENERGY FIELD BETWEEN HANDS =====
+  if(handData.length === 2){
+    const h1 = handData[0];
+    const h2 = handData[1];
 
     h1.forEach(p1=>{
       h2.forEach(p2=>{
-        const x1=p1.x*canvas.width;
-        const y1=p1.y*canvas.height;
-        const x2=p2.x*canvas.width;
-        const y2=p2.y*canvas.height;
+        const x1 = p1.x * canvas.width;
+        const y1 = p1.y * canvas.height;
+        const x2 = p2.x * canvas.width;
+        const y2 = p2.y * canvas.height;
 
         const d = Math.hypot(x1-x2,y1-y2);
-        if(d<300){
-          ctx.strokeStyle=`rgba(0,255,200,${1-d/300})`;
+
+        if(d < 250){
+          ctx.strokeStyle = `rgba(0,255,200,${1-d/250})`;
+          ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(x1,y1);
           ctx.lineTo(x2,y2);
@@ -128,7 +157,7 @@ function draw(){
     });
   }
 
-  // particles
+  // ===== PARTICLES =====
   particles = particles.filter(p=>p.life>0);
   particles.forEach(p=>{
     p.update();
@@ -136,6 +165,7 @@ function draw(){
   });
 
   ctx.restore();
+
   requestAnimationFrame(draw);
 }
 
