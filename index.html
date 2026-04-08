@@ -1,9 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ANTIGRAVITY FIELD FINAL</title>
+<title>ANTIGRAVITY FIELD (TF VERSION)</title>
 
 <style>
 body { margin:0; overflow:hidden; background:black; }
@@ -25,22 +24,22 @@ video {
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 
-<!-- ✅ OFFICIAL MEDIAPIPE BUNDLE -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<!-- ✅ TensorFlow + Handpose -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
 
 <script>
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-function resize(){
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener('resize', resize);
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// ===== CAMERA =====
+navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+  video.srcObject = stream;
+});
 
 // ===== PARTICLES =====
 let particles = [];
@@ -67,105 +66,76 @@ class Particle {
   }
 }
 
-// ===== HANDS =====
-const hands = new Hands({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-  }
-});
+// ===== MAIN =====
+async function run(){
+  const model = await handpose.load();
 
-hands.setOptions({
-  maxNumHands: 2,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7
-});
+  async function detect(){
+    const predictions = await model.estimateHands(video);
 
-let resultsData = [];
+    ctx.clearRect(0,0,canvas.width,canvas.height);
 
-hands.onResults(results => {
-  resultsData = results.multiHandLandmarks || [];
-});
+    ctx.save();
+    ctx.translate(canvas.width,0);
+    ctx.scale(-1,1);
 
-// ===== CAMERA =====
-const camera = new Camera(video, {
-  onFrame: async () => {
-    await hands.send({ image: video });
-  },
-  width: 1280,
-  height: 720
-});
-camera.start();
+    let points = [];
 
-// ===== DRAW LOOP =====
-function draw(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+    predictions.forEach(hand=>{
+      hand.landmarks.forEach(p=>{
+        const x = p[0];
+        const y = p[1];
 
-  ctx.save();
-  ctx.translate(canvas.width,0);
-  ctx.scale(-1,1);
+        points.push({x,y});
 
-  let allPoints = [];
+        // glow
+        ctx.fillStyle="#00ffcc";
+        ctx.shadowBlur=15;
+        ctx.shadowColor="#00ffcc";
+        ctx.beginPath();
+        ctx.arc(x,y,5,0,Math.PI*2);
+        ctx.fill();
 
-  resultsData.forEach(hand=>{
-    hand.forEach(point=>{
-      const x = point.x * canvas.width;
-      const y = point.y * canvas.height;
-
-      allPoints.push({x,y});
-
-      // glow
-      ctx.fillStyle="#00ffcc";
-      ctx.shadowBlur=15;
-      ctx.shadowColor="#00ffcc";
-      ctx.beginPath();
-      ctx.arc(x,y,4,0,Math.PI*2);
-      ctx.fill();
-
-      // particles
-      if(Math.random()<0.25){
-        particles.push(new Particle(x,y));
-      }
-    });
-  });
-
-  // ===== CONNECTION FIELD =====
-  if(resultsData.length===2){
-    const h1 = resultsData[0];
-    const h2 = resultsData[1];
-
-    h1.forEach(p1=>{
-      h2.forEach(p2=>{
-        const x1 = p1.x * canvas.width;
-        const y1 = p1.y * canvas.height;
-        const x2 = p2.x * canvas.width;
-        const y2 = p2.y * canvas.height;
-
-        const d = Math.hypot(x1-x2,y1-y2);
-
-        if(d<250){
-          ctx.strokeStyle=`rgba(0,255,200,${1-d/250})`;
-          ctx.beginPath();
-          ctx.moveTo(x1,y1);
-          ctx.lineTo(x2,y2);
-          ctx.stroke();
+        // particles
+        if(Math.random()<0.3){
+          particles.push(new Particle(x,y));
         }
       });
     });
+
+    // connect points
+    for(let i=0;i<points.length;i++){
+      for(let j=i+1;j<points.length;j++){
+        const dx=points[i].x-points[j].x;
+        const dy=points[i].y-points[j].y;
+        const d=Math.sqrt(dx*dx+dy*dy);
+
+        if(d<150){
+          ctx.strokeStyle=`rgba(0,255,200,${1-d/150})`;
+          ctx.beginPath();
+          ctx.moveTo(points[i].x,points[i].y);
+          ctx.lineTo(points[j].x,points[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // particles
+    particles = particles.filter(p=>p.life>0);
+    particles.forEach(p=>{
+      p.update();
+      p.draw();
+    });
+
+    ctx.restore();
+
+    requestAnimationFrame(detect);
   }
 
-  // ===== PARTICLES =====
-  particles = particles.filter(p=>p.life>0);
-  particles.forEach(p=>{
-    p.update();
-    p.draw();
-  });
-
-  ctx.restore();
-  requestAnimationFrame(draw);
+  detect();
 }
 
-draw();
+run();
 </script>
 
 </body>
