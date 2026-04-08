@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Hand Power GOD MODE ⚡</title>
+<title>Gesture Energy System ⚡</title>
 
 <style>
 body {
@@ -11,16 +11,16 @@ body {
   background: black;
 }
 
-/* 🎬 CINEMATIC CAMERA */
+/* 🎬 Cinematic camera */
 video {
   position: absolute;
   width: 100%;
   height: 100%;
   object-fit: cover;
-
   filter: brightness(0.7) contrast(1.3) saturate(1.2) hue-rotate(-10deg);
 }
 
+/* Overlay */
 canvas {
   position: absolute;
   width: 100%;
@@ -44,146 +44,164 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
 // resize
-function resize() {
+function resize(){
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 }
 resize();
 window.addEventListener("resize", resize);
 
-// Mediapipe setup
+// Mediapipe
 const hands = new Hands({
-  locateFile: (file) =>
+  locateFile: file =>
     `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
 
 hands.setOptions({
   maxNumHands: 2,
   modelComplexity: 1,
-  minDetectionConfidence: 0.6,
-  minTrackingConfidence: 0.6
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
 });
 
-// particles
+// STATE
 let particles = [];
 let angle = 0;
+let globe = {
+  x: window.innerWidth/2,
+  y: window.innerHeight/2,
+  r: 120
+};
+let grabbed = false;
 
-function createParticles(x, y) {
-  for (let i = 0; i < 8; i++) {
+// helpers
+function dist(a,b){
+  return Math.hypot(a.x-b.x, a.y-b.y);
+}
+
+// particles
+function createParticles(x,y){
+  for(let i=0;i<6;i++){
     particles.push({
-      x,
-      y,
-      vx: (Math.random() - 0.5) * 3,
-      vy: (Math.random() - 0.5) * 3,
-      life: 40
+      x,y,
+      vx:(Math.random()-0.5)*2,
+      vy:(Math.random()-0.5)*2,
+      life:40
     });
   }
 }
 
-function drawParticles() {
-  particles.forEach(p => {
-    ctx.fillStyle = "rgba(0,255,255," + p.life/40 + ")";
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.fillStyle=`rgba(0,255,255,${p.life/40})`;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 2, 0, Math.PI*2);
+    ctx.arc(p.x,p.y,2,0,Math.PI*2);
     ctx.fill();
-
-    p.x += p.vx;
-    p.y += p.vy;
+    p.x+=p.vx;
+    p.y+=p.vy;
     p.life--;
   });
-
-  particles = particles.filter(p => p.life > 0);
+  particles = particles.filter(p=>p.life>0);
 }
 
-// MAIN LOOP
-hands.onResults((results) => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+// MAIN
+hands.onResults((results)=>{
+  ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  const handsData = [];
+  let handsData = [];
 
-  if (results.multiHandLandmarks) {
-    results.multiHandLandmarks.forEach(lm => {
-      const x = lm[9].x * canvas.width;
-      const y = lm[9].y * canvas.height;
+  if(results.multiHandLandmarks){
+    results.multiHandLandmarks.forEach((lm)=>{
 
-      handsData.push({x, y});
+      const palm = {
+        x: lm[9].x * canvas.width,
+        y: lm[9].y * canvas.height
+      };
 
-      // 🔥 BIG GLOW AURA
-      const grad = ctx.createRadialGradient(x, y, 20, x, y, 140);
-      grad.addColorStop(0, "rgba(0,255,255,0.9)");
-      grad.addColorStop(1, "transparent");
+      const thumb = {
+        x: lm[4].x * canvas.width,
+        y: lm[4].y * canvas.height
+      };
+
+      const index = {
+        x: lm[8].x * canvas.width,
+        y: lm[8].y * canvas.height
+      };
+
+      const pinch = dist(thumb,index) < 40;
+
+      handsData.push({palm, pinch});
+
+      // ✨ HAND AURA
+      const grad = ctx.createRadialGradient(palm.x,palm.y,10,palm.x,palm.y,120);
+      grad.addColorStop(0,"rgba(0,255,255,0.9)");
+      grad.addColorStop(1,"transparent");
 
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(x, y, 140, 0, Math.PI*2);
+      ctx.arc(palm.x,palm.y,120,0,Math.PI*2);
       ctx.fill();
 
-      createParticles(x, y);
+      createParticles(palm.x,palm.y);
     });
   }
 
   drawParticles();
 
-  // 🌍 TWO HAND GLOBE
-  if (handsData.length === 2) {
-    const h1 = handsData[0];
-    const h2 = handsData[1];
-
-    const midX = (h1.x + h2.x) / 2;
-    const midY = (h1.y + h2.y) / 2;
-
-    const dist = Math.hypot(h1.x - h2.x, h1.y - h2.y);
-    const radius = dist / 2;
-
-    // ⚡ ENERGY BEAM
-    ctx.strokeStyle = "rgba(0,255,255,0.9)";
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.moveTo(h1.x, h1.y);
-    ctx.lineTo(h2.x, h2.y);
-    ctx.stroke();
-
-    // 🌍 CORE ENERGY
-    const glow = ctx.createRadialGradient(midX, midY, 20, midX, midY, radius);
-    glow.addColorStop(0, "rgba(0,255,255,0.9)");
-    glow.addColorStop(1, "rgba(0,0,0,0)");
-
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(midX, midY, radius, 0, Math.PI*2);
-    ctx.fill();
-
-    // 🌀 ROTATING PARTICLE SHELL
-    angle += 0.03;
-
-    for (let i = 0; i < 60; i++) {
-      const a = (i / 60) * Math.PI * 2 + angle;
-
-      const x = midX + Math.cos(a) * radius;
-      const y = midY + Math.sin(a) * radius;
-
-      ctx.fillStyle = "rgba(0,255,255,0.9)";
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI*2);
-      ctx.fill();
+  // 🤏 GRAB (single hand)
+  if(handsData.length === 1){
+    if(handsData[0].pinch){
+      grabbed = true;
+      globe.x = handsData[0].palm.x;
+      globe.y = handsData[0].palm.y;
+    } else {
+      grabbed = false;
     }
+  }
 
-    // 🌐 OUTER RING
-    ctx.strokeStyle = "rgba(0,255,255,0.8)";
-    ctx.lineWidth = 2;
+  // 🙌 TWO HAND SCALE
+  if(handsData.length === 2){
+    const p1 = handsData[0].palm;
+    const p2 = handsData[1].palm;
+
+    globe.x = (p1.x + p2.x)/2;
+    globe.y = (p1.y + p2.y)/2;
+    globe.r = dist(p1,p2)/2;
+  }
+
+  // 🌍 DRAW GLOBE
+  const glow = ctx.createRadialGradient(globe.x,globe.y,20,globe.x,globe.y,globe.r);
+  glow.addColorStop(0,"rgba(0,255,255,0.9)");
+  glow.addColorStop(1,"transparent");
+
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(globe.x,globe.y,globe.r,0,Math.PI*2);
+  ctx.fill();
+
+  // 🌀 ROTATING PARTICLE SHELL
+  angle += 0.03;
+
+  for(let i=0;i<60;i++){
+    const a = (i/60)*Math.PI*2 + angle;
+
+    const x = globe.x + Math.cos(a)*globe.r;
+    const y = globe.y + Math.sin(a)*globe.r;
+
+    ctx.fillStyle="rgba(0,255,255,0.9)";
     ctx.beginPath();
-    ctx.arc(midX, midY, radius, 0, Math.PI*2);
-    ctx.stroke();
+    ctx.arc(x,y,3,0,Math.PI*2);
+    ctx.fill();
   }
 });
 
 // camera
-const camera = new Camera(video, {
-  onFrame: async () => {
-    await hands.send({ image: video });
+const camera = new Camera(video,{
+  onFrame: async()=>{
+    await hands.send({image: video});
   },
-  width: 1280,
-  height: 720
+  width:1280,
+  height:720
 });
 
 camera.start();
