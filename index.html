@@ -3,15 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ANTIGRAVITY FIELD V3</title>
+<title>ANTIGRAVITY FIELD FINAL</title>
 
 <style>
-body {
-  margin:0;
-  overflow:hidden;
-  background:black;
-  font-family: monospace;
-}
+body { margin:0; overflow:hidden; background:black; }
 video, canvas {
   position:absolute;
   width:100%;
@@ -30,15 +25,17 @@ video {
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js"></script>
+<!-- ✅ OFFICIAL MEDIAPIPE BUNDLE -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
-function resize() {
+function resize(){
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 }
@@ -50,43 +47,44 @@ let particles = [];
 
 class Particle {
   constructor(x,y){
-    this.x = x;
-    this.y = y;
-    this.vx = (Math.random()-0.5)*3;
-    this.vy = (Math.random()-0.5)*3;
-    this.life = 1;
+    this.x=x;
+    this.y=y;
+    this.vx=(Math.random()-0.5)*3;
+    this.vy=(Math.random()-0.5)*3;
+    this.life=1;
   }
   update(){
-    this.x += this.vx;
-    this.y += this.vy;
-    this.life -= 0.02;
+    this.x+=this.vx;
+    this.y+=this.vy;
+    this.life-=0.02;
   }
   draw(){
-    ctx.globalAlpha = this.life;
-    ctx.fillStyle = "#00ffcc";
+    ctx.globalAlpha=this.life;
+    ctx.fillStyle="#00ffcc";
     ctx.beginPath();
     ctx.arc(this.x,this.y,2,0,Math.PI*2);
     ctx.fill();
   }
 }
 
-// ===== HAND SETUP =====
+// ===== HANDS =====
 const hands = new Hands({
   locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
   }
 });
 
 hands.setOptions({
   maxNumHands: 2,
+  modelComplexity: 1,
   minDetectionConfidence: 0.7,
   minTrackingConfidence: 0.7
 });
 
-let handData = [];
+let resultsData = [];
 
 hands.onResults(results => {
-  handData = results.multiHandLandmarks || [];
+  resultsData = results.multiHandLandmarks || [];
 });
 
 // ===== CAMERA =====
@@ -99,7 +97,7 @@ const camera = new Camera(video, {
 });
 camera.start();
 
-// ===== DRAW =====
+// ===== DRAW LOOP =====
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
@@ -109,32 +107,32 @@ function draw(){
 
   let allPoints = [];
 
-  handData.forEach(hand => {
-    hand.forEach(point => {
+  resultsData.forEach(hand=>{
+    hand.forEach(point=>{
       const x = point.x * canvas.width;
       const y = point.y * canvas.height;
 
       allPoints.push({x,y});
 
-      // glowing point
-      ctx.fillStyle = "#00ffcc";
-      ctx.shadowBlur = 20;
-      ctx.shadowColor = "#00ffcc";
+      // glow
+      ctx.fillStyle="#00ffcc";
+      ctx.shadowBlur=15;
+      ctx.shadowColor="#00ffcc";
       ctx.beginPath();
       ctx.arc(x,y,4,0,Math.PI*2);
       ctx.fill();
 
       // particles
-      if(Math.random() < 0.3){
+      if(Math.random()<0.25){
         particles.push(new Particle(x,y));
       }
     });
   });
 
-  // ===== ENERGY FIELD BETWEEN HANDS =====
-  if(handData.length === 2){
-    const h1 = handData[0];
-    const h2 = handData[1];
+  // ===== CONNECTION FIELD =====
+  if(resultsData.length===2){
+    const h1 = resultsData[0];
+    const h2 = resultsData[1];
 
     h1.forEach(p1=>{
       h2.forEach(p2=>{
@@ -145,9 +143,8 @@ function draw(){
 
         const d = Math.hypot(x1-x2,y1-y2);
 
-        if(d < 250){
-          ctx.strokeStyle = `rgba(0,255,200,${1-d/250})`;
-          ctx.lineWidth = 1;
+        if(d<250){
+          ctx.strokeStyle=`rgba(0,255,200,${1-d/250})`;
           ctx.beginPath();
           ctx.moveTo(x1,y1);
           ctx.lineTo(x2,y2);
@@ -165,7 +162,6 @@ function draw(){
   });
 
   ctx.restore();
-
   requestAnimationFrame(draw);
 }
 
