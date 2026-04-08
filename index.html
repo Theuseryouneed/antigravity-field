@@ -1,213 +1,165 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Gesture OS</title>
+<title>Gesture Intelligence Dashboard</title>
 
 <style>
-body {
-  margin: 0;
-  overflow: hidden;
-  background: black;
-}
+body { margin:0; overflow:hidden; font-family:sans-serif; }
 
-/* Camera */
 video {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  position:absolute;
+  width:100%;
+  height:100%;
+  object-fit:cover;
   transform: scaleX(-1);
-  filter: brightness(0.85) contrast(1.1);
+  z-index:-1;
 }
 
-/* Canvas */
-canvas {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
+/* Layout */
+#top, #bottom {
+  position:absolute;
+  width:100%;
 }
 
-/* UI */
-button {
-  position: absolute;
-  z-index: 10;
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: none;
-  background: rgba(0,0,0,0.6);
-  color: white;
+#top { height:50%; top:0; display:flex; }
+#bottom { height:50%; bottom:0; }
+
+/* Panels */
+.panel {
+  flex:1;
+  padding:10px;
+  backdrop-filter: blur(10px);
+  background: rgba(0,0,0,0.4);
+  color:white;
+  overflow:auto;
 }
 
-#startBtn { top: 20px; left: 20px; }
-#switchBtn { top: 20px; right: 20px; }
+/* News */
+.news-item {
+  margin-bottom:10px;
+  padding:10px;
+  background:rgba(255,255,255,0.1);
+  border-radius:8px;
+  cursor:pointer;
+}
+
+/* Map */
+#map {
+  width:100%;
+  height:100%;
+  background:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
+  background-size:cover;
+}
+
+/* Highlight */
+.hotspot {
+  position:absolute;
+  width:20px;
+  height:20px;
+  background:red;
+  border-radius:50%;
+}
+
+/* Weather */
+.weather {
+  display:none;
+  position:absolute;
+  width:100%;
+  height:100%;
+  color:white;
+  background:black;
+  padding:20px;
+}
 </style>
 </head>
 
 <body>
 
-<button id="startBtn">Start</button>
-<button id="switchBtn">Switch Camera</button>
-
 <video id="video" autoplay playsinline muted></video>
-<canvas id="canvas"></canvas>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<div id="dashboard">
+
+<div id="top">
+  <div class="panel" id="news">
+    <h3>Recent News</h3>
+  </div>
+
+  <div class="panel" id="live">
+    <h3>Live Feed</h3>
+    <iframe id="liveFrame" src="https://www.youtube.com/embed/21X5lGlDOfg" width="100%" height="80%"></iframe>
+  </div>
+</div>
+
+<div id="bottom">
+  <div id="map"></div>
+</div>
+
+</div>
+
+<div id="weather" class="weather">
+  <h2>Delhi Weather ☀️ 32°C</h2>
+  <h2>Noida Weather 🌤️ 31°C</h2>
+</div>
 
 <script>
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
 
-let camera;
-let usingFront = true;
-
-/* Resize */
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resize();
-window.onresize = resize;
-
-/* Gesture State */
-let handsData = [];
-let globeActive = false;
-let globeSize = 80;
-
-/* MediaPipe */
-const hands = new Hands({
-  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+/* CAMERA */
+navigator.mediaDevices.getUserMedia({video:true})
+.then(stream => {
+  document.getElementById("video").srcObject = stream;
 });
 
-hands.setOptions({
-  maxNumHands: 2,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7
+/* NEWS DATA */
+const newsData = [
+  {title:"Reuters: Middle East tensions rise", link:"https://www.reuters.com"},
+  {title:"BBC: Global reactions", link:"https://www.bbc.com"},
+  {title:"Al Jazeera: Conflict analysis", link:"https://www.aljazeera.com"}
+];
+
+const newsDiv = document.getElementById("news");
+
+newsData.forEach(n=>{
+  let d = document.createElement("div");
+  d.className="news-item";
+  d.innerText=n.title;
+  d.onclick=()=> window.open(n.link);
+  newsDiv.appendChild(d);
 });
 
-hands.onResults(results => {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+/* MAP INTERACTION */
+const map = document.getElementById("map");
 
-  if (!results.multiHandLandmarks) return;
-
-  handsData = results.multiHandLandmarks;
-
-  drawHands(results.multiHandLandmarks);
-  handleGestures(results.multiHandLandmarks);
-});
-
-/* Draw Hand Skeleton */
-function drawHands(hands) {
-  hands.forEach(hand => {
-    hand.forEach(pt => {
-      ctx.beginPath();
-      ctx.arc(pt.x * canvas.width, pt.y * canvas.height, 4, 0, Math.PI*2);
-      ctx.fillStyle = "#00f7ff";
-      ctx.fill();
-    });
-  });
-}
-
-/* Gesture Logic */
-function handleGestures(hands) {
-
-  if (hands.length === 2) {
-    let h1 = hands[0][9];
-    let h2 = hands[1][9];
-
-    let x1 = h1.x * canvas.width;
-    let y1 = h1.y * canvas.height;
-    let x2 = h2.x * canvas.width;
-    let y2 = h2.y * canvas.height;
-
-    let midX = (x1 + x2) / 2;
-    let midY = (y1 + y2) / 2;
-
-    let dist = Math.hypot(x1-x2, y1-y2);
-
-    globeActive = true;
-    globeSize = dist;
-
-    drawGlobe(midX, midY, globeSize);
-  } else {
-    globeActive = false;
-
-    let hand = hands[0];
-    let pt = hand[9];
-
-    let x = pt.x * canvas.width;
-    let y = pt.y * canvas.height;
-
-    drawEnergy(x,y);
-  }
-}
-
-/* Globe */
-function drawGlobe(x,y,size) {
-  for (let i=0;i<60;i++) {
-    let angle = i * 0.1 + Date.now()*0.002;
-
-    let px = x + Math.cos(angle) * size * 0.5;
-    let py = y + Math.sin(angle) * size * 0.5;
-
-    ctx.beginPath();
-    ctx.arc(px, py, 2, 0, Math.PI*2);
-    ctx.fillStyle = "#00ffcc";
-    ctx.fill();
-  }
-
-  ctx.beginPath();
-  ctx.arc(x,y,size*0.5,0,Math.PI*2);
-  ctx.strokeStyle = "rgba(0,255,200,0.4)";
-  ctx.stroke();
-}
-
-/* Energy */
-function drawEnergy(x,y) {
-  for (let i=0;i<20;i++) {
-    let px = x + (Math.random()-0.5)*40;
-    let py = y + (Math.random()-0.5)*40;
-
-    ctx.beginPath();
-    ctx.arc(px, py, 2, 0, Math.PI*2);
-    ctx.fillStyle = "#00f7ff";
-    ctx.fill();
-  }
-}
-
-/* Camera */
-async function startCamera() {
-  if (camera) camera.stop();
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: usingFront ? "user" : "environment" }
-  });
-
-  video.srcObject = stream;
-
-  camera = new Camera(video, {
-    onFrame: async () => {
-      await hands.send({image: video});
-    },
-    width: 640,
-    height: 480
-  });
-
-  camera.start();
-}
-
-/* Buttons */
-document.getElementById("startBtn").onclick = startCamera;
-
-document.getElementById("switchBtn").onclick = () => {
-  usingFront = !usingFront;
-  startCamera();
+map.onclick = (e)=>{
+  map.style.backgroundSize="200%";
 };
+
+/* PINCH ZOOM (basic) */
+let scale=1;
+
+document.getElementById("liveFrame").addEventListener("wheel",(e)=>{
+  scale += e.deltaY * -0.001;
+  scale = Math.min(Math.max(.5, scale), 2);
+
+  e.target.style.transform = `scale(${scale})`;
+});
+
+/* SWIPE */
+let startX = 0;
+
+document.addEventListener("touchstart",(e)=>{
+  startX = e.touches[0].clientX;
+});
+
+document.addEventListener("touchend",(e)=>{
+  let endX = e.changedTouches[0].clientX;
+
+  if(endX - startX > 100){
+    document.getElementById("dashboard").style.display="none";
+    document.getElementById("weather").style.display="block";
+  }
+});
+
 </script>
 
 </body>
