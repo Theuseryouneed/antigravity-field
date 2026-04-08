@@ -1,112 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANTIGRAVITY FIELD V2</title>
+
+<style>
+body { margin:0; background:black; overflow:hidden; }
+canvas { position:absolute; width:100%; height:100%; }
+video { position:absolute; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); opacity:0.25; }
+</style>
+</head>
+
+<body>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
 <script>
-const video   = document.getElementById('video');
-const canvas  = document.getElementById('canvas');
-const ctx     = canvas.getContext('2d');
-const loading = document.getElementById('loading');
-const sField  = document.getElementById('s-field');
-const sHands  = document.getElementById('s-hands');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
 
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener('resize', resize);
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-let currentResults = null;
-let particles = [];
-let t = 0;
+let handsData = [];
 
-// ✅ Explicit camera permission request
-async function initCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1280, height: 720 },
-      audio: false
-    });
-
-    video.srcObject = stream;
-
-    return new Promise(resolve => {
-      video.onloadedmetadata = () => {
-        video.play();
-        resolve();
-      };
-    });
-
-  } catch (err) {
-    throw new Error("Camera permission denied or unavailable: " + err.message);
-  }
-}
-
-// ===== MediaPipe Setup =====
 const hands = new Hands({
-  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
 
 hands.setOptions({
   maxNumHands: 2,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.6,
-  minTrackingConfidence: 0.5
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.6
 });
 
-hands.onResults(r => {
-  currentResults = r;
+hands.onResults(results => {
+  handsData = results.multiHandLandmarks || [];
 });
 
-// ===== Render Loop =====
-function render() {
-  t += 0.016;
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  width: 1280,
+  height: 720
+});
+
+camera.start();
+
+// ===== PARTICLES =====
+let particles = [];
+
+class Particle {
+  constructor(x,y){
+    this.x=x; this.y=y;
+    this.vx=(Math.random()-0.5)*4;
+    this.vy=(Math.random()-0.5)*4;
+    this.life=1;
+  }
+  update(){
+    this.x+=this.vx;
+    this.y+=this.vy;
+    this.life-=0.02;
+  }
+  draw(){
+    ctx.globalAlpha=this.life;
+    ctx.fillStyle="#00ffcc";
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,2,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+// ===== DRAW LOOP =====
+function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
   ctx.save();
   ctx.translate(canvas.width,0);
   ctx.scale(-1,1);
 
-  const lms = currentResults?.multiHandLandmarks ?? [];
-  sHands.textContent = lms.length;
+  handsData.forEach(hand=>{
+    hand.forEach(point=>{
+      const x = point.x * canvas.width;
+      const y = point.y * canvas.height;
 
-  if (lms.length > 0) {
-    sField.textContent='ACTIVE';
-    sField.style.color='#00ffcc';
-  } else {
-    sField.textContent='STANDBY';
-    sField.style.color='#003322';
+      // glow dot
+      ctx.fillStyle="#00ffcc";
+      ctx.beginPath();
+      ctx.arc(x,y,5,0,Math.PI*2);
+      ctx.fill();
+
+      // particles
+      if(Math.random()<0.3){
+        particles.push(new Particle(x,y));
+      }
+    });
+  });
+
+  // connect fingers
+  if(handsData.length===2){
+    const h1 = handsData[0];
+    const h2 = handsData[1];
+
+    h1.forEach(p1=>{
+      h2.forEach(p2=>{
+        const x1=p1.x*canvas.width;
+        const y1=p1.y*canvas.height;
+        const x2=p2.x*canvas.width;
+        const y2=p2.y*canvas.height;
+
+        const d = Math.hypot(x1-x2,y1-y2);
+        if(d<300){
+          ctx.strokeStyle=`rgba(0,255,200,${1-d/300})`;
+          ctx.beginPath();
+          ctx.moveTo(x1,y1);
+          ctx.lineTo(x2,y2);
+          ctx.stroke();
+        }
+      });
+    });
   }
+
+  // particles
+  particles = particles.filter(p=>p.life>0);
+  particles.forEach(p=>{
+    p.update();
+    p.draw();
+  });
 
   ctx.restore();
-  requestAnimationFrame(render);
+  requestAnimationFrame(draw);
 }
 
-// ===== Start Everything =====
-async function startApp() {
-  try {
-    await initCamera();
-
-    // Camera loop for MediaPipe
-    async function detect() {
-      await hands.send({ image: video });
-      requestAnimationFrame(detect);
-    }
-
-    detect();
-
-    loading.style.display = 'none';
-    requestAnimationFrame(render);
-
-  } catch (err) {
-    loading.innerHTML = `
-      <div style="color:#ff4455;font-size:10px;letter-spacing:3px;text-align:center;line-height:2.4;padding:30px">
-        CAMERA ERROR<br>
-        <span style="opacity:0.5;font-size:8px">${err.message}</span><br>
-        <span style="opacity:0.35;font-size:8px">
-        Use HTTPS or localhost + allow camera access
-        </span>
-      </div>
-    `;
-  }
-}
-
-startApp();
+draw();
 </script>
+
+</body>
+</html>
