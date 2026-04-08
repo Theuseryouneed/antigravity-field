@@ -33,7 +33,7 @@ class Particle {
   update(){
     this.x+=this.vx;
     this.y+=this.vy;
-    this.life-=0.015;
+    this.life-=0.02;
   }
   draw(){
     ctx.globalAlpha=this.life;
@@ -49,6 +49,14 @@ function dist(a,b){
   return Math.hypot(a.x-b.x, a.y-b.y);
 }
 
+// GET PALM CENTER
+function getPalm(lm){
+  return {
+    x:(lm[0][0]+lm[5][0]+lm[17][0])/3,
+    y:(lm[0][1]+lm[5][1]+lm[17][1])/3
+  };
+}
+
 async function run() {
   await setupCamera();
   const model = await handpose.load();
@@ -62,72 +70,96 @@ async function run() {
     ctx.translate(canvas.width,0);
     ctx.scale(-1,1);
 
+    let palms = [];
+
     predictions.forEach(hand=>{
       const lm = hand.landmarks;
 
-      // 👉 PALM CENTER (REAL FEEL)
-      const palm = {
-        x: (lm[0][0] + lm[5][0] + lm[17][0]) / 3,
-        y: (lm[0][1] + lm[5][1] + lm[17][1]) / 3
-      };
+      const palm = getPalm(lm);
+      palms.push(palm);
 
-      // 👉 PINCH DETECTION
       const thumb = {x: lm[4][0], y: lm[4][1]};
       const index = {x: lm[8][0], y: lm[8][1]};
-      const pinchDist = dist(thumb, index);
+      const pinch = dist(thumb,index) < 40;
 
-      const pinch = pinchDist < 40;
-
-      // 👉 ORB SIZE BASED ON PINCH
       let radius = pinch ? 20 : 60;
 
-      // 👉 GLOW ORB
+      // SINGLE HAND ORB
       const gradient = ctx.createRadialGradient(
         palm.x, palm.y, 0,
         palm.x, palm.y, radius
       );
-      gradient.addColorStop(0, "rgba(0,255,200,0.9)");
-      gradient.addColorStop(1, "rgba(0,255,200,0)");
+      gradient.addColorStop(0,"rgba(0,255,200,0.9)");
+      gradient.addColorStop(1,"rgba(0,255,200,0)");
 
       ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.arc(palm.x, palm.y, radius, 0, Math.PI*2);
+      ctx.arc(palm.x,palm.y,radius,0,Math.PI*2);
       ctx.fill();
 
-      // 👉 PARTICLE EMISSION
-      for(let i=0;i<3;i++){
-        particles.push(new Particle(palm.x, palm.y));
+      // PARTICLES
+      for(let i=0;i<2;i++){
+        particles.push(new Particle(palm.x,palm.y));
+      }
+    });
+
+    // 🌍 TWO HAND GLOBE
+    if(palms.length === 2){
+      const p1 = palms[0];
+      const p2 = palms[1];
+
+      const cx = (p1.x + p2.x)/2;
+      const cy = (p1.y + p2.y)/2;
+
+      const d = dist(p1,p2);
+      const radius = d / 2;
+
+      // GLOW SPHERE
+      const gradient = ctx.createRadialGradient(cx,cy,0,cx,cy,radius);
+      gradient.addColorStop(0,"rgba(0,255,200,0.4)");
+      gradient.addColorStop(1,"rgba(0,255,200,0)");
+
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(cx,cy,radius,0,Math.PI*2);
+      ctx.fill();
+
+      // PARTICLE SPHERE
+      for(let i=0;i<25;i++){
+        const angle = Math.random()*Math.PI*2;
+        const r = Math.random()*radius;
+
+        const x = cx + Math.cos(angle)*r;
+        const y = cy + Math.sin(angle)*r;
+
+        particles.push(new Particle(x,y));
       }
 
-      // 👉 ENERGY LINES BETWEEN FINGERS
-      const tips = [4,8,12,16,20];
-      for(let i=0;i<tips.length;i++){
-        for(let j=i+1;j<tips.length;j++){
-          const p1 = lm[tips[i]];
-          const p2 = lm[tips[j]];
+      // ENERGY GRID (globe feel)
+      for(let i=0;i<20;i++){
+        const a1 = Math.random()*Math.PI*2;
+        const a2 = Math.random()*Math.PI*2;
 
-          const d = Math.hypot(p1[0]-p2[0], p1[1]-p2[1]);
+        const x1 = cx + Math.cos(a1)*radius;
+        const y1 = cy + Math.sin(a1)*radius;
+        const x2 = cx + Math.cos(a2)*radius;
+        const y2 = cy + Math.sin(a2)*radius;
 
-          if(d<120){
-            ctx.strokeStyle=`rgba(0,255,200,${1-d/120})`;
-            ctx.beginPath();
-            ctx.moveTo(p1[0], p1[1]);
-            ctx.lineTo(p2[0], p2[1]);
-            ctx.stroke();
-          }
-        }
-      }
-
-      // 👉 PINCH VISUAL
-      if(pinch){
-        ctx.strokeStyle="#00ffcc";
-        ctx.lineWidth=2;
+        ctx.strokeStyle="rgba(0,255,200,0.2)";
         ctx.beginPath();
-        ctx.arc(palm.x, palm.y, radius+10, 0, Math.PI*2);
+        ctx.moveTo(x1,y1);
+        ctx.lineTo(x2,y2);
         ctx.stroke();
       }
 
-    });
+      // HAND CONNECTION
+      ctx.strokeStyle="rgba(0,255,200,0.6)";
+      ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(p1.x,p1.y);
+      ctx.lineTo(p2.x,p2.y);
+      ctx.stroke();
+    }
 
     // PARTICLES
     particles = particles.filter(p=>p.life>0);
