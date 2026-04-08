@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Antigravity Field V3</title>
+<title>Antigravity Field - Production</title>
 
 <style>
 body {
@@ -12,17 +12,15 @@ body {
   background:#000;
 }
 
-/* ✅ BRIGHT CAMERA */
 #video {
   position:absolute;
   width:100%;
   height:100%;
   object-fit:cover;
+  transform: scaleX(-1);
   filter: brightness(1.05) contrast(1.05) saturate(1.1);
-  transform: scaleX(-1); /* mirror */
 }
 
-/* CANVAS */
 #canvas {
   position:absolute;
   width:100%;
@@ -37,70 +35,57 @@ body {
 <video id="video" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 
-<!-- TensorFlow + Handpose -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
 
 <script>
+document.addEventListener("DOMContentLoaded", async () => {
+
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+// RESIZE SAFE
+function resize(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
 
 // CAMERA
 async function setupCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: "user",
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
-    }
+    video: { facingMode: "user", width: 1280, height: 720 }
   });
-
   video.srcObject = stream;
-
-  return new Promise(resolve => {
-    video.onloadedmetadata = () => {
-      video.play();
-      resolve(video);
-    };
-  });
+  await video.play();
 }
 
-// MAP COORDINATES (FIX ALIGNMENT)
+// MAP
 function mapX(x){
   return canvas.width - (x / video.videoWidth) * canvas.width;
 }
-
 function mapY(y){
   return (y / video.videoHeight) * canvas.height;
 }
 
-// SMOOTHING
-let smoothPalm = null;
-function smoothPoint(p){
-  if(!smoothPalm){
-    smoothPalm = p;
-  } else {
-    smoothPalm.x = smoothPalm.x * 0.7 + p.x * 0.3;
-    smoothPalm.y = smoothPalm.y * 0.7 + p.y * 0.3;
-  }
-  return smoothPalm;
-}
-
-// DISTANCE
+// DIST
 function dist(a,b){
   return Math.hypot(a.x-b.x, a.y-b.y);
 }
 
-// GET PALM CENTER
-function getPalm(lm){
-  return {
-    x: mapX((lm[0][0] + lm[5][0] + lm[17][0]) / 3),
-    y: mapY((lm[0][1] + lm[5][1] + lm[17][1]) / 3)
-  };
+// PER HAND SMOOTHING
+let smoothHands = {};
+
+function smooth(id, point){
+  if(!smoothHands[id]){
+    smoothHands[id] = point;
+  } else {
+    smoothHands[id].x = smoothHands[id].x * 0.7 + point.x * 0.3;
+    smoothHands[id].y = smoothHands[id].y * 0.7 + point.y * 0.3;
+  }
+  return smoothHands[id];
 }
 
 // PARTICLES
@@ -108,8 +93,7 @@ let particles = [];
 
 class Particle {
   constructor(x,y){
-    this.x=x;
-    this.y=y;
+    this.x=x; this.y=y;
     this.vx=(Math.random()-0.5)*2;
     this.vy=(Math.random()-0.5)*2;
     this.life=1;
@@ -128,161 +112,126 @@ class Particle {
   }
 }
 
-// MAIN
-async function run() {
-  await setupCamera();
-  const model = await handpose.load();
-
-  async function detect(){
-    const predictions = await model.estimateHands(video);
-
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    let palms = [];
-
-    predictions.forEach(hand=>{
-      const lm = hand.landmarks;
-
-      // PALM
-      const palmRaw = getPalm(lm);
-      const palm = smoothPoint(palmRaw);
-      palms.push(palm);
-
-      // PINCH
-      const thumb = {
-        x: mapX(lm[4][0]),
-        y: mapY(lm[4][1])
-      };
-
-      const index = {
-        x: mapX(lm[8][0]),
-        y: mapY(lm[8][1])
-      };
-
-      const pinch = dist(thumb,index) < 40;
-
-      let radius = pinch ? 25 : 70;
-
-      // ORB
-      const gradient = ctx.createRadialGradient(
-        palm.x, palm.y, 0,
-        palm.x, palm.y, radius
-      );
-      gradient.addColorStop(0,"rgba(0,255,200,0.9)");
-      gradient.addColorStop(1,"rgba(0,255,200,0)");
-
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(palm.x,palm.y,radius,0,Math.PI*2);
-      ctx.fill();
-
-      // PARTICLES
-      for(let i=0;i<2;i++){
-        particles.push(new Particle(palm.x,palm.y));
-      }
-
-      // FINGER CONNECTIONS
-      const tips = [4,8,12,16,20];
-      for(let i=0;i<tips.length;i++){
-        for(let j=i+1;j<tips.length;j++){
-          const p1 = {
-            x: mapX(lm[tips[i]][0]),
-            y: mapY(lm[tips[i]][1])
-          };
-          const p2 = {
-            x: mapX(lm[tips[j]][0]),
-            y: mapY(lm[tips[j]][1])
-          };
-
-          const d = dist(p1,p2);
-
-          if(d < 120){
-            ctx.strokeStyle=`rgba(0,255,200,${1-d/120})`;
-            ctx.beginPath();
-            ctx.moveTo(p1.x,p1.y);
-            ctx.lineTo(p2.x,p2.y);
-            ctx.stroke();
-          }
-        }
-      }
-
-      // PINCH RING
-      if(pinch){
-        ctx.strokeStyle="#00ffcc";
-        ctx.lineWidth=2;
-        ctx.beginPath();
-        ctx.arc(palm.x, palm.y, radius+10, 0, Math.PI*2);
-        ctx.stroke();
-      }
-    });
-
-    // 🌍 TWO HAND GLOBE
-    if(palms.length === 2){
-      const p1 = palms[0];
-      const p2 = palms[1];
-
-      const cx = (p1.x + p2.x)/2;
-      const cy = (p1.y + p2.y)/2;
-
-      const d = dist(p1,p2);
-      const radius = d / 2;
-
-      // GLOW
-      const gradient = ctx.createRadialGradient(cx,cy,0,cx,cy,radius);
-      gradient.addColorStop(0,"rgba(0,255,200,0.4)");
-      gradient.addColorStop(1,"rgba(0,255,200,0)");
-
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(cx,cy,radius,0,Math.PI*2);
-      ctx.fill();
-
-      // PARTICLE SPHERE
-      for(let i=0;i<20;i++){
-        const angle = Math.random()*Math.PI*2;
-        const r = Math.random()*radius;
-
-        const x = cx + Math.cos(angle)*r;
-        const y = cy + Math.sin(angle)*r;
-
-        particles.push(new Particle(x,y));
-      }
-
-      // ENERGY GRID
-      for(let i=0;i<15;i++){
-        const a1 = Math.random()*Math.PI*2;
-        const a2 = Math.random()*Math.PI*2;
-
-        ctx.strokeStyle="rgba(0,255,200,0.2)";
-        ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(a1)*radius, cy + Math.sin(a1)*radius);
-        ctx.lineTo(cx + Math.cos(a2)*radius, cy + Math.sin(a2)*radius);
-        ctx.stroke();
-      }
-
-      // HAND LINK
-      ctx.strokeStyle="rgba(0,255,200,0.6)";
-      ctx.lineWidth=2;
-      ctx.beginPath();
-      ctx.moveTo(p1.x,p1.y);
-      ctx.lineTo(p2.x,p2.y);
-      ctx.stroke();
-    }
-
-    // PARTICLES UPDATE
-    particles = particles.filter(p=>p.life>0);
-    particles.forEach(p=>{
-      p.update();
-      p.draw();
-    });
-
-    requestAnimationFrame(detect);
-  }
-
-  detect();
+// PALM
+function getPalm(lm){
+  return {
+    x: mapX((lm[0][0] + lm[5][0] + lm[17][0]) / 3),
+    y: mapY((lm[0][1] + lm[5][1] + lm[17][1]) / 3)
+  };
 }
 
-run();
+// MAIN
+await setupCamera();
+const model = await handpose.load();
+
+async function render(){
+
+  const predictions = await model.estimateHands(video, true);
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  let palms = [];
+
+  predictions.forEach((hand, index)=>{
+
+    const lm = hand.landmarks;
+
+    const rawPalm = getPalm(lm);
+    const palm = smooth(index, rawPalm);
+
+    palms.push(palm);
+
+    const thumb = {
+      x: mapX(lm[4][0]),
+      y: mapY(lm[4][1])
+    };
+
+    const indexFinger = {
+      x: mapX(lm[8][0]),
+      y: mapY(lm[8][1])
+    };
+
+    const pinch = dist(thumb,indexFinger) < 40;
+
+    let radius = pinch ? 25 : 70;
+
+    // ORB
+    const grad = ctx.createRadialGradient(
+      palm.x,palm.y,0,
+      palm.x,palm.y,radius
+    );
+    grad.addColorStop(0,"rgba(0,255,200,0.9)");
+    grad.addColorStop(1,"rgba(0,255,200,0)");
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(palm.x,palm.y,radius,0,Math.PI*2);
+    ctx.fill();
+
+    // PARTICLES
+    particles.push(new Particle(palm.x,palm.y));
+
+    // PINCH RING
+    if(pinch){
+      ctx.strokeStyle="#00ffcc";
+      ctx.beginPath();
+      ctx.arc(palm.x,palm.y,radius+10,0,Math.PI*2);
+      ctx.stroke();
+    }
+  });
+
+  // 🌍 TWO HAND GLOBE
+  if(palms.length === 2){
+
+    const p1 = palms[0];
+    const p2 = palms[1];
+
+    const cx = (p1.x + p2.x)/2;
+    const cy = (p1.y + p2.y)/2;
+
+    const d = dist(p1,p2);
+    const radius = d/2;
+
+    const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,radius);
+    grad.addColorStop(0,"rgba(0,255,200,0.4)");
+    grad.addColorStop(1,"rgba(0,255,200,0)");
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx,cy,radius,0,Math.PI*2);
+    ctx.fill();
+
+    // CONNECTION LINE
+    ctx.strokeStyle="rgba(0,255,200,0.5)";
+    ctx.beginPath();
+    ctx.moveTo(p1.x,p1.y);
+    ctx.lineTo(p2.x,p2.y);
+    ctx.stroke();
+
+    // GLOBE PARTICLES
+    for(let i=0;i<10;i++){
+      const angle = Math.random()*Math.PI*2;
+      const r = Math.random()*radius;
+      particles.push(new Particle(
+        cx + Math.cos(angle)*r,
+        cy + Math.sin(angle)*r
+      ));
+    }
+  }
+
+  // PARTICLES UPDATE
+  particles = particles.filter(p=>p.life>0);
+  particles.forEach(p=>{
+    p.update();
+    p.draw();
+  });
+
+  requestAnimationFrame(render);
+}
+
+render();
+
+});
 </script>
 
 </body>
